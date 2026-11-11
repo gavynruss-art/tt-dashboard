@@ -49,16 +49,42 @@ function rangeStart(r) {
 const inRange = (date, r) => date && date >= rangeStart(r) && date <= dayStr(new Date());
 const bizMarks = () => load(LS.biz, {});
 const expKey = e => e.date + '|' + e.vendor;
-function counted(e) { return e.status === 'confirmed' || bizMarks()[expKey(e)] === true; }
+/* Every business-spend candidate in one list: expenses from data.json plus bank/card lines.
+   amount > 0 = money spent. status: confirmed | review. Bank lines that duplicate an expense or are taxes are left out. */
+const FIN = () => D.finance || { accounts: [], txns: [] };
+function spendItems() {
+  const ex = D.expenses.map(e => ({ key: expKey(e), date: e.date, desc: e.vendor, category: e.category, amount: e.amount,
+    status: e.status === 'confirmed' ? 'confirmed' : 'review', reason: e.note }));
+  const bk = FIN().txns.filter(t => (t.owner === 'business' && !t.tax && !t.dup_expense) || (t.owner === 'review' && t.amount < 0))
+    .map(t => ({ key: 'b:' + t.id, date: t.date, desc: t.desc, category: t.category, amount: -t.amount, acct: t.acct, pending: t.pending,
+      status: t.owner === 'business' ? 'confirmed' : 'review', reason: t.reason || t.note }));
+  return [...ex, ...bk];
+}
+const reviewIn = () => FIN().txns.filter(t => t.owner === 'review' && t.amount > 0).map(t => ({ key: 'b:' + t.id, date: t.date, desc: t.desc, amount: t.amount, acct: t.acct, reason: t.reason, income: true }));
+function counted(e) { return e.status === 'confirmed' || bizMarks()[e.key || expKey(e)] === true; }
 function totals(r) {
   const pays = D.payments.filter(p => inRange(p.date, r));
-  const rev = sum(pays.map(p => p.amount));
-  const exps = D.expenses.filter(e => inRange(e.date, r));
+  const extraIn = reviewIn().filter(x => inRange(x.date, r) && bizMarks()[x.key] === true);
+  const rev = sum(pays.map(p => p.amount)) + sum(extraIn.map(x => x.amount));
+  const exps = spendItems().filter(e => inRange(e.date, r));
   const spent = sum(exps.filter(counted).map(e => e.amount));
-  const open = exps.filter(e => !counted(e) && bizMarks()[expKey(e)] !== false);
-  return { pays, rev, spent, net: rev - spent, open, openAmt: sum(open.map(e => e.amount)),
+  const open = exps.filter(e => !counted(e) && bizMarks()[e.key] !== false);
+  return { pays, rev, spent, net: rev - spent, open, openAmt: sum(open.map(e => e.amount)), exps,
     tattoo: sum(pays.filter(p => p.type === 'tattoo').map(p => p.amount)), piercing: sum(pays.filter(p => p.type === 'piercing').map(p => p.amount)),
     deposit: sum(pays.filter(p => p.kind === 'deposit').map(p => p.amount)), full: sum(pays.filter(p => p.kind !== 'deposit').map(p => p.amount)) };
+}
+function split2(r) {  /* business vs personal for the range; transfers and Stripe payouts are left out */
+  const tx = FIN().txns.filter(t => inRange(t.date, r));
+  const t = totals(r);
+  const pers = tx.filter(x => x.owner === 'personal');
+  const persIn = sum(pers.filter(x => x.category === 'income').map(x => x.amount));
+  const persOut = -sum(pers.filter(x => x.category !== 'income').map(x => x.amount));
+  const marked = tx.filter(x => x.owner === 'review' && bizMarks()['b:' + x.id] === false);
+  const markedOut = -sum(marked.filter(x => x.amount < 0).map(x => x.amount));
+  const xfer = tx.filter(x => x.owner === 'transfer');
+  const tax = -sum(tx.filter(x => x.tax).map(x => x.amount));
+  const cats = {}; for (const x of pers.filter(x => x.category !== 'income')) cats[x.category] = (cats[x.category] || 0) - x.amount;
+  return { bizIn: t.rev, bizOut: t.spent, persIn, persOut: persOut + markedOut, persCats: cats, xferN: xfer.length, tax, openAmt: t.openAmt, open: t.open };
 }
 const sum = a => Math.round(a.reduce((x, y) => x + (y || 0), 0) * 100) / 100;
 function weekKey(s) { const d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return dayStr(d); }
@@ -92,8 +118,9 @@ function vMoney() {
   <div class="hero">
     <div class="card net"><div class="lbl">Net profit · ${RANGES[r]}</div><div class="big ${t.net >= 0 ? 'pos' : 'neg'}">${money(t.net, true)}</div>${ifAll}</div>
     <div class="card"><div class="lbl">Revenue</div><div class="big">${money(t.rev)}</div><div class="note">${t.pays.length} payment${t.pays.length === 1 ? '' : 's'}</div></div>
-    <div class="card"><div class="lbl">Spending</div><div class="big">${money(t.spent)}</div><div class="note">confirmed only</div></div>
+    <div class="card"><div class="lbl">Spending</div><div class="big">${money(t.spent)}</div><div class="note">sorted business only</div></div>
   </div>
+  ${financeCards(r)}
   ${chairCard(r)}
   ${stripeCard()}
   <h2>Revenue mix</h2>
@@ -110,12 +137,44 @@ function vMoney() {
   <h2>Payments</h2>
   <div class="card">${[...D.payments].sort((a, b) => b.date.localeCompare(a.date)).map(p => `<div class="row"><span>${fmtDate(p.date)} · ${esc(p.client)} <span class="pill ${p.type}">${p.type}</span><div class="note">${p.kind === 'deposit' ? 'Deposit' : 'Paid in full'} · ${esc(p.via)}${p.fee ? ' · fee ' + money(p.fee) : ''}</div></span><strong>${money(p.amount)}</strong></div>`).join('')}
     ${(D.payouts || []).map(p => `<div class="row muted"><span>${fmtDate(p.date)} · ${esc(p.via)} payout<div class="note">${esc(p.note || '')}</div></span><span>${money(p.amount)}</span></div>`).join('')}</div>
-  <h2>${esc(bank.name || 'Bank')} <span class="pill warn">${bank.status === 'csv' ? 'from CSV' : 'partial'}</span></h2>
+  ${D.finance ? '' : `<h2>${esc(bank.name || 'Bank')} <span class="pill warn">${bank.status === 'csv' ? 'from CSV' : 'partial'}</span></h2>
   <div class="card">${(bank.transactions || []).map(x => `<div class="row"><span>${fmtDate(x.date)} · ${esc(x.description)}<div class="note">${x.kind === 'owner_draw' ? 'Owner draw (not an expense)' : esc(x.kind)}</div></span><span class="${x.amount < 0 ? 'neg' : 'pos'}">${money(x.amount, true)}</span></div>`).join('')}
-    <div class="note">${esc(bank.note || '')}</div>${draws.length ? `<div class="note">Owner draws so far: ${money(sum(draws.map(x => -x.amount)))}</div>` : ''}</div>
+    <div class="note">${esc(bank.note || '')}</div>${draws.length ? `<div class="note">Owner draws so far: ${money(sum(draws.map(x => -x.amount)))}</div>` : ''}</div>`}
   <h2>Coming up</h2>
   <div class="card">${(D.upcoming_costs || []).map(c => `<div class="row"><span>${esc(c.item)}<div class="note">${c.due ? 'Due ' + fmtDate(c.due) : 'Date not set'}${c.note ? ' · ' + esc(c.note) : ''}</div></span><span class="neg">${money(-c.amount)}</span></div>`).join('')}</div>
   ${gaps()}`;
+}
+function bizToggle(k) { const m = bizMarks()[k];
+  return `<div class="seg" style="margin:6px 0 0"><button data-biz="${esc(k)}" data-v="1" class="${m === true ? 'on' : ''}">Business</button><button data-biz="${esc(k)}" data-v="0" class="${m === false ? 'on' : ''}">Personal</button></div>`; }
+function acctLabel(m) { return (FIN().accounts.find(a => a.mask === m) || {}).label || ('...' + m); }
+function financeCards(r) {
+  const F = D.finance; if (!F) return '';
+  const s = split2(r);
+  const cash = F.accounts.filter(a => a.kind !== 'card'), cards = F.accounts.filter(a => a.kind === 'card');
+  const bizCash = sum(cash.filter(a => a.owner === 'business').map(a => a.balance)), persCash = sum(cash.filter(a => a.owner !== 'business').map(a => a.balance));
+  const owed = -sum(cards.map(a => a.balance));
+  const bizCats = {}; for (const e of totals(r).exps.filter(counted)) bizCats[e.category] = (bizCats[e.category] || 0) + e.amount;
+  const rows = o => Object.entries(o).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<div class="row"><span>${esc(k)}</span><strong>${money(v)}</strong></div>`).join('');
+  const rev = [...reviewIn(), ...spendItems().filter(e => e.status === 'review')].filter(x => inRange(x.date, 'd90')).sort((a, b) => b.date.localeCompare(a.date));
+  const left = rev.filter(x => bizMarks()[x.key] === undefined);
+  return `<h2>Cash and cards</h2><div class="card">
+    ${F.accounts.map(a => `<div class="row"><span>${esc(a.label)}<div class="note">${a.owner === 'business' ? 'Business' : 'Personal'}${a.kind === 'card' && a.available != null ? ' · ' + money(a.available) + ' available' : ''}</div></span><strong class="${a.balance < 0 ? 'neg' : ''}">${money(a.balance, a.balance < 0)}</strong></div>`).join('')}
+    <div class="row"><span><strong>Business cash</strong></span><strong>${money(bizCash)}</strong></div>
+    <div class="row"><span><strong>Personal cash minus card owed</strong></span><strong class="${persCash - owed < 0 ? 'neg' : 'pos'}">${money(persCash - owed, true)}</strong></div>
+    ${D.stripe_balance ? `<div class="note">Plus ${money(D.stripe_balance.pending)} still in Stripe on the way out.</div>` : ''}
+    <div class="note">Balances as of ${fmtDate(String(F.as_of || D.as_of).slice(0, 10))}.</div></div>
+  <h2>Business vs personal · ${RANGES[r]}</h2><div class="card">
+    <div class="row"><span><span class="pill tattoo">Business</span> in ${money(s.bizIn)}</span><span>out ${money(s.bizOut)}</span></div>
+    <div class="row"><span><span class="pill">Personal</span> in ${money(s.persIn)}</span><span>out ${money(s.persOut)}</span></div>
+    ${split(s.bizOut, s.persOut, 'var(--tat)', 'var(--muted, #888)')}
+    <div class="note">Spending split: business ${money(s.bizOut)} vs personal ${money(s.persOut)}. ${money(s.openAmt)} still needs a call. ${s.xferN} transfers between your own accounts and Stripe payouts are left out so nothing counts twice.</div>
+    ${s.tax ? `<div class="note">Taxes paid from the business account: ${money(s.tax)} (kept out of profit).</div>` : ''}
+    ${Object.keys(s.persCats).length ? `<details><summary class="note">Personal spending by category</summary>${rows(s.persCats)}</details>` : ''}</div>
+  <h2>Business spending by category · ${RANGES[r]}</h2><div class="card">${rows(bizCats) || '<span class="muted">Nothing sorted as business yet</span>'}
+    <div class="note">Counts only items sorted as business. Needs-review items join once you mark them.</div></div>
+  <h2>Needs review <span class="pill warn">${left.length} left</span></h2>
+  ${rev.map(x => `<div class="card"><div class="row"><span><strong>${esc(x.desc)}</strong><div class="note">${fmtDate(x.date)}${x.acct ? ' · ' + esc(acctLabel(x.acct)) : ' · cash'}${x.pending ? ' · pending' : ''}</div></span><strong class="${x.income ? 'pos' : ''}">${x.income ? '+' : ''}${money(x.amount)}</strong></div><div class="note">${esc(x.reason || '')}</div>${bizToggle(x.key)}</div>`).join('') || '<div class="card muted">Nothing to review</div>'}
+  <div class="note">Your picks are saved on this phone only. Tell your agent so the next refresh keeps them.</div>`;
 }
 function chairCard(r) {
   const c = chair(r);
@@ -158,19 +217,17 @@ function vAppts() {
     <h2>Recent</h2>${past.map(card).join('') || '<div class="card muted">None in this window</div>'}`;
 }
 function vSpend() {
-  const marks = bizMarks();
-  const cats = groupBy(D.expenses.filter(counted), e => e.category);
   const t = totals('d90');
+  const items = spendItems().filter(e => inRange(e.date, 'd90') || !D.finance);
+  const cats = groupBy(items.filter(counted), e => e.category);
   return `<div class="hero"><div class="card"><div class="lbl">Business spend · 90 days</div><div class="big">${money(t.spent)}</div></div>
-    <div class="card"><div class="lbl">Not sorted yet</div><div class="big muted">${money(t.openAmt)}</div></div></div>
+    <div class="card"><div class="lbl">Needs review</div><div class="big muted">${money(t.openAmt)}</div></div></div>
     <h2>By category</h2><div class="card">${cats.map(([k, v]) => `<div class="row"><span>${esc(k)}</span><strong>${money(v)}</strong></div>`).join('') || '<span class="muted">Nothing confirmed</span>'}</div>
-    <h2>All purchases</h2>${[...D.expenses].sort((a, b) => b.date.localeCompare(a.date)).map(e => {
-      const k = expKey(e); const m = marks[k];
-      const ctl = e.status === 'confirmed' ? '<span class="pill">confirmed</span>' :
-        `<div class="seg" style="margin:6px 0 0"><button data-biz="${esc(k)}" data-v="1" class="${m === true ? 'on' : ''}">Business</button><button data-biz="${esc(k)}" data-v="0" class="${m === false ? 'on' : ''}">Personal</button></div>`;
-      return `<div class="card"><div class="row"><span><strong>${esc(e.vendor)}</strong><div class="note">${fmtDate(e.date)} · ${esc(e.category)}</div></span><strong>${money(e.amount)}</strong></div><div class="note">${esc(e.note || '')}</div>${ctl}</div>`;
+    <h2>Business purchases</h2>${[...items].sort((a, b) => b.date.localeCompare(a.date)).map(e => {
+      const ctl = e.status === 'confirmed' ? '<span class="pill">business</span>' : bizToggle(e.key);
+      return `<div class="card"><div class="row"><span><strong>${esc(e.desc)}</strong><div class="note">${fmtDate(e.date)} · ${esc(e.category)}${e.acct ? ' · ' + esc(acctLabel(e.acct)) : ''}</div></span><strong>${money(e.amount)}</strong></div><div class="note">${esc(e.reason || '')}</div>${ctl}</div>`;
     }).join('')}
-    <div class="note">Your Business/Personal picks are saved on this phone only. Tell Gojo so the next refresh keeps them.</div>`;
+    <div class="note">Your Business/Personal picks are saved on this phone only. Tell your agent so the next refresh keeps them.</div>`;
 }
 function vTodo() {
   const st = load(LS.todo, {}); const custom = load(LS.custom, []);
