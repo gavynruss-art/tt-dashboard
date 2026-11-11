@@ -1,4 +1,4 @@
-const VERSION = 'tt-20261111142713';
+const VERSION = 'tt-20261111145545';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'manifest.json', 'icons/icon-192.png', 'icons/icon-512.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL))); self.skipWaiting(); });
 self.addEventListener('activate', e => {
