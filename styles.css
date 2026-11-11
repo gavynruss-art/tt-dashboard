@@ -1,0 +1,45 @@
+:root{--bg:#0e0e10;--card:#18181c;--line:#26262c;--tx:#ececf1;--mu:#8b8b96;--ac:#e8b04b;--ok:#4fc38a;--bad:#ef6a6a;--warn:#e8b04b;--tat:#9d8cff;--pie:#4cc9d6}
+@media (prefers-color-scheme: light){:root{--bg:#f6f6f8;--card:#fff;--line:#e3e3e8;--tx:#16161a;--mu:#6b6b76}}
+*{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+.muted{color:var(--mu)}.small{font-size:12px}[hidden]{display:none!important}
+button{font:inherit;color:inherit;cursor:pointer}
+.lock{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;gap:8px}
+.lock img{border-radius:16px}.lock h1{font-size:18px;margin:4px 0 16px}
+.lock form{width:100%;max-width:320px;display:flex;flex-direction:column;gap:10px}
+.lock input[type=password]{padding:14px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--tx);font-size:16px}
+.lock button{padding:14px;border:0;border-radius:12px;background:var(--ac);color:#111;font-weight:600}
+.remember{font-size:13px;color:var(--mu);display:flex;gap:8px;align-items:center}
+.top{position:sticky;top:0;z-index:2;display:flex;justify-content:space-between;align-items:center;padding:calc(10px + env(safe-area-inset-top)) 14px 10px;background:var(--bg);border-bottom:1px solid var(--line)}
+.ghost{background:none;border:1px solid var(--line);border-radius:8px;padding:4px 10px}
+#view{padding:12px 12px calc(84px + env(safe-area-inset-bottom));max-width:560px;margin:0 auto}
+.tabs{position:fixed;z-index:5;bottom:0;left:0;right:0;display:flex;background:var(--card);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
+.tabs button{flex:1;padding:14px 0;background:none;border:0;color:var(--mu);font-weight:600}
+.tabs button.on{color:var(--ac)}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mu);margin:18px 4px 8px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:8px}
+.hero{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.hero .card{margin:0}.hero .net{grid-column:1/-1}
+.big{font-size:28px;font-weight:700;letter-spacing:-.02em}.net .big{font-size:36px}
+.lbl{font-size:12px;color:var(--mu)}
+.pos{color:var(--ok)}.neg{color:var(--bad)}
+.row{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid var(--line)}
+.row:first-child{border-top:0}
+.bar{height:8px;border-radius:4px;background:var(--line);overflow:hidden;display:flex;margin:6px 0}
+.bar i{display:block;height:100%}
+.pill{display:inline-block;font-size:11px;padding:2px 8px;border-radius:99px;border:1px solid var(--line);color:var(--mu)}
+.pill.tattoo{color:var(--tat);border-color:var(--tat)}.pill.piercing{color:var(--pie);border-color:var(--pie)}
+.pill.warn{color:var(--warn);border-color:var(--warn)}
+.flag{font-size:13px;color:var(--warn);margin-top:4px}.flag::before{content:"• "}
+.seg{display:flex;gap:6px;margin:0 0 8px}.seg button{flex:1;padding:8px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--mu)}
+.seg button.on{color:var(--tx);border-color:var(--ac)}
+.todo{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--line)}
+.todo:first-child{border-top:0}.todo input{width:20px;height:20px;margin-top:1px;accent-color:var(--ac)}
+.todo.done span{text-decoration:line-through;color:var(--mu)}
+.add{display:flex;gap:6px;margin-top:8px}.add input,.add select{flex:1;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--tx);font-size:15px}
+.add select{flex:0 0 auto}.add button{padding:10px 14px;border:0;border-radius:10px;background:var(--ac);color:#111;font-weight:600}
+details summary{cursor:pointer;color:var(--mu);font-size:13px;padding:4px}
+.note{font-size:12px;color:var(--mu);margin-top:4px}
+.add input{min-width:0}.add select{max-width:40%}
+html,body{overflow-x:hidden}
+.row>span{min-width:0;overflow-wrap:anywhere}
+a{color:var(--ac)}
